@@ -6,35 +6,48 @@
 #include "stdio.h"
 // Varaibles globales 
 int nota=0;
+int CantidadDeNotas=11;
 int octava=0;
 int YaCambioNota=0;
 uint32_t frecuencia;
 int NotaSonando=0;
+//
+uint32_t Duraciones[] = 
+//	  .125 s	  	.25 s		  .5 s		   1 s
+{125000, 250000, 500000, 1000000};
+// N
 // Matriz de segmentos para los dígitos 0-9
 uint32_t NotasyOctavas[][8] = 
 {
     	// 1°oct,  2°oct,   3°oct,     4°oct,    5°oct,    6°oct,    7°oct,      8°oct
     {32, 64, 128, 256, 512, 1024, 2048, 4096}, // Do
-    {34, 68, 136, 272, 544, 1088, 2176, 4352}, // Re
-    {36, 72, 144, 288, 576, 1152, 2304, 4608}, // Mi
-    {38, 76, 152, 304, 608, 1216, 2432, 4864}, // Fa
-    {41, 82, 164, 328, 656, 1312, 2624, 5248}, // Sol
-    {43, 86, 172, 344, 688, 1376, 2752, 5504}, // La
-    {46, 92, 184, 368, 736, 1472, 2944, 5888}, // Si
+    {34, 68, 136, 272, 544, 1088, 2176, 4352}, // Do#
+    {36, 72, 144, 288, 576, 1152, 2304, 4608}, // Re
+    {37, 74, 148, 296, 592, 1184, 2368, 4736}, // Re#
+    {38, 76, 152, 304, 608, 1216, 2432, 4864}, // Mi
+    {39, 78, 156, 312, 624, 1248, 2496, 4992}, // Fa
+    {41, 82, 164, 328, 656, 1312, 2624, 5248}, // Fa#
+    {43, 86, 172, 344, 688, 1376, 2752, 5504}, // Sol
+    {44, 88, 176, 352, 704, 1408, 2816, 5632}, // Sol#
+    {46, 92, 184, 368, 736, 1472, 2944, 5888}, // La
+   {47, 94, 188, 376, 752, 1504, 3008, 6016}, // La#
+   {49, 98, 196, 392, 784, 1568, 3136, 6272}, // Si 
 };
 // Nombres de las notas para imprimir
 const char* NombresNotas[] = 
-{"Do", "Re", "Mi", "Fa", "Sol", "La", "Si"};
+{
+    "Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"
+};
 //================================================== Funciones  =====================================================
 void CambiaLaNota()
 {
-	if (nota<=6)
+	if (nota<=CantidadDeNotas)
 	{
 		frecuencia = NotasyOctavas[nota][octava];
 		ledc_set_freq(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0, frecuencia);
 		ledc_timer_rst(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
 		ledc_timer_resume(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-		if (nota==6)
+		if (nota==CantidadDeNotas)
 		{
 			nota =0;
 			if(octava<=6){octava=octava+1;}
@@ -57,14 +70,16 @@ static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_eve
 	//Condiciones
 	if(NotaSonando==0)
 	{
-		//Cambiar Nota
 		CambiaLaNota();
+		 // Configuramos el ciclo de trabajo a un valor adecuado para la frecuencia deseada
+         ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 32); // 50% de ciclo de trabajo
+         ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);  // Actualizamos el ciclo de trabajo
 		// Indicamos que esta sonando
 		NotaSonando=1;
 		//Duracion de sonido
 		gptimer_alarm_config_t Sonando = 
 		{
-        .alarm_count = 1000000,
+        .alarm_count = 500000,	//Duracion de las notas
         .reload_count = 0,
         .flags.auto_reload_on_alarm = false
     	};
@@ -76,14 +91,17 @@ static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_eve
 	}
 	else
 	{
+		// Detener el canal de PWM completamente
+   		 ledc_stop(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0); // Esto detiene la señal PWM y la configura en 0
+
+    	//Paramos el pwm
+		ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
 		//Indicamos que laa nota no esta sonando
 		NotaSonando=0;
-		//Paramos el pwm
-		ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
 		//configuramos el silencio
 		gptimer_alarm_config_t silencio = 
 		{
-        .alarm_count = 1000000,
+        .alarm_count = 150000,	//Aqui se establece cuanto tiempo estara el silencio entre notas
         .reload_count = 0,
         .flags.auto_reload_on_alarm = false
     	};
@@ -113,7 +131,7 @@ void app_main(void)
 		// Configuracion de la alarma
 		gptimer_alarm_config_t AlarmaNota = 
 		{
-			.alarm_count = 1000000,
+			.alarm_count = 3000000,
 			.reload_count = 0,
 			.flags.auto_reload_on_alarm = false
 		};
@@ -156,21 +174,25 @@ void app_main(void)
 	    ledc_timer_config(&PWM_timer);
 	    ledc_channel_config(&PWM_channel);
 	    // Al iniciarse, se pausa el timer
+	    /// Detener el canal de PWM completamente
+   		ledc_stop(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 0); // Esto detiene la señal PWM y la configura en 0
 	    ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-    	vTaskDelay(500 / portTICK_PERIOD_MS);
+    	vTaskDelay(2750/ portTICK_PERIOD_MS);
 		
 	   int NotaActual=10; //numero aleaorio pero que no este enetre 0-6 (numero de notas)
 	    while (true) 
 	    {
-			if(NotaSonando==1)
-			{
+			// Hacer algo
+    		vTaskDelay(10 / portTICK_PERIOD_MS); 
+    		if(NotaSonando==0){
 				if(NotaActual!=nota)
-				{				
+				{	
+					
+					frecuencia = NotasyOctavas[nota][octava];			
 					printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava + 1, (unsigned long)frecuencia);
 					NotaActual=nota;
 				}
 			}
-			// Hacer algo
-    		vTaskDelay(1 / portTICK_PERIOD_MS); 
+			
 	    }
 	}
