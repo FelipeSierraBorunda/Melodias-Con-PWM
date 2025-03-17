@@ -11,10 +11,15 @@ int octava=0;
 int YaCambioNota=0;
 uint32_t frecuencia;
 int NotaSonando=0;
-//
+uint32_t duracion;
+uint32_t TiempoDeSilencio=350000; //350 ms
+int NumeroNota=0;
+int CantidadNotasMelodia =0;
+// Matriz de duraciones
 uint32_t Duraciones[] = 
 //	  .125 s	  	.25 s		  .5 s		   1 s
-{125000, 250000, 500000, 1000000};
+	{125000, 250000, 500000, 1000000};
+// CORCHEA   NEGRA    BLANCA  REDONDA
 // N
 // Matriz de segmentos para los dígitos 0-9
 uint32_t NotasyOctavas[][8] = 
@@ -33,13 +38,50 @@ uint32_t NotasyOctavas[][8] =
    {47, 94, 188, 376, 752, 1504, 3008, 6016}, // La#
    {49, 98, 196, 392, 784, 1568, 3136, 6272}, // Si 
 };
-// Nombres de las notas para imprimir
 const char* NombresNotas[] = 
 {
     "Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"
 };
+// Representación más legible de las notas y octavas
+
+typedef enum {
+    DO = 0, DO_S, RE, RE_S, MI, FA, FA_S, SOL, SOL_S, LA, LA_S, SI
+} Nota;
+
+uint32_t Melodia[][3] = 
+{
+    {DO,   4, 1},
+    {RE,   4, 1},
+    {MI,  4, 1},
+    {DO,   4, 1},
+    
+    {DO,   4, 1},
+    {RE,   4, 1},    
+    {MI,   4, 1},  
+    {DO,   4, 1},
+    
+    {MI,   4, 1},  
+    {FA,   4, 1},
+    {SOL,   4, 2},
+    
+     {MI,   4, 1},  
+    {FA,   4, 1},
+    {SOL,   4, 2},
+    
+    {SOL,   4, 0},
+    {LA,   4, 0},    
+    {SOL,   4, 0},  
+    			{FA,   		4, 		0},
+    {MI,   4, 1},
+    {DO,   4, 1},
+};
+
+
+
+// Nombres de las notas para imprimir
+
 //================================================== Funciones  =====================================================
-void CambiaLaNota()
+void TodosLosArmonicos()
 {
 	if (nota<=CantidadDeNotas)
 	{
@@ -57,6 +99,30 @@ void CambiaLaNota()
 			nota++;
 		}
 	}  	
+}
+void CambiaLaNota()
+{		
+		CantidadNotasMelodia=(sizeof(Melodia) / sizeof(Melodia[0]))-1;
+		if (NumeroNota<=CantidadNotasMelodia)
+		{
+		nota = Melodia[NumeroNota][0];
+        octava = Melodia[NumeroNota][1];
+        duracion = Duraciones[Melodia[NumeroNota][2]];
+		frecuencia = NotasyOctavas[nota][octava];
+		ledc_set_freq(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0, frecuencia);
+		ledc_timer_rst(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+		ledc_timer_resume(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+			if (NumeroNota==CantidadNotasMelodia)
+			{
+				NumeroNota =0;
+				TiempoDeSilencio=2000000;
+			}
+			else{
+				TiempoDeSilencio=350000;
+				NumeroNota++;
+			}
+		}  
+
 }
 //================================================== Interrupciones =================================================
 // ================================================= Cambio de nota
@@ -79,7 +145,7 @@ static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_eve
 		//Duracion de sonido
 		gptimer_alarm_config_t Sonando = 
 		{
-        .alarm_count = 500000,	//Duracion de las notas
+        .alarm_count = duracion,	//Duracion de las notas
         .reload_count = 0,
         .flags.auto_reload_on_alarm = false
     	};
@@ -101,7 +167,7 @@ static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_eve
 		//configuramos el silencio
 		gptimer_alarm_config_t silencio = 
 		{
-        .alarm_count = 150000,	//Aqui se establece cuanto tiempo estara el silencio entre notas
+        .alarm_count = TiempoDeSilencio,	//Aqui se establece cuanto tiempo estara el silencio entre notas
         .reload_count = 0,
         .flags.auto_reload_on_alarm = false
     	};
@@ -189,7 +255,7 @@ void app_main(void)
 				{	
 					
 					frecuencia = NotasyOctavas[nota][octava];			
-					printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava + 1, (unsigned long)frecuencia);
+					printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava +1 , (unsigned long)frecuencia);
 					NotaActual=nota;
 				}
 			}
