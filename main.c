@@ -7,7 +7,9 @@
 // Varaibles globales 
 int nota=0;
 int octava=0;
+int YaCambioNota=0;
 uint32_t frecuencia;
+int NotaSonando=0;
 // Matriz de segmentos para los dígitos 0-9
 uint32_t NotasyOctavas[][8] = 
 {
@@ -26,22 +28,22 @@ const char* NombresNotas[] =
 //================================================== Funciones  =====================================================
 void CambiaLaNota()
 {
-	if (nota<7)
+	if (nota<=6)
 	{
-	frecuencia = NotasyOctavas[nota][octava];
-	printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava + 1, (unsigned long)frecuencia);
-	ledc_set_freq(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0, frecuencia);
-	ledc_timer_rst(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-	ledc_timer_resume(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-	vTaskDelay(500 / portTICK_PERIOD_MS);
-	nota++;
-	}
-	else if (nota==7)
-	{
-		nota=0;
-		if(octava<8){octava=octava+1;}
-		if(octava==8){octava=0;}
-	}   	
+		frecuencia = NotasyOctavas[nota][octava];
+		ledc_set_freq(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0, frecuencia);
+		ledc_timer_rst(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+		ledc_timer_resume(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+		if (nota==6)
+		{
+			nota =0;
+			if(octava<=6){octava=octava+1;}
+			else{octava=0;}
+		}
+		else{
+			nota++;
+		}
+	}  	
 }
 //================================================== Interrupciones =================================================
 // ================================================= Cambio de nota
@@ -49,13 +51,54 @@ void CambiaLaNota()
 static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
 	BaseType_t high_task_awoken = pdFALSE;
+	//Reiniciamos el timer
+	gptimer_set_raw_count(timer, 0);
+	gptimer_stop(timer);
+	//Condiciones
+	if(NotaSonando==0)
+	{
+		//Cambiar Nota
+		CambiaLaNota();
+		// Indicamos que esta sonando
+		NotaSonando=1;
+		//Duracion de sonido
+		gptimer_alarm_config_t Sonando = 
+		{
+        .alarm_count = 1000000,
+        .reload_count = 0,
+        .flags.auto_reload_on_alarm = false
+    	};
+    	// Aplicar la nueva configuración de la alarma
+   		gptimer_set_alarm_action(timer, &Sonando);
+   		// Reiniciar el temporizador
+   		gptimer_start(timer);
 
+	}
+	else
+	{
+		//Indicamos que laa nota no esta sonando
+		NotaSonando=0;
+		//Paramos el pwm
+		ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+		//configuramos el silencio
+		gptimer_alarm_config_t silencio = 
+		{
+        .alarm_count = 1000000,
+        .reload_count = 0,
+        .flags.auto_reload_on_alarm = false
+    	};
+    	// Aplicar la nueva configuración de la alarma
+   		gptimer_set_alarm_action(timer, &silencio);
+   		// Reiniciar el temporizador
+   		gptimer_start(timer);
+	}
 	return (high_task_awoken == pdTRUE); 		
 }
 //==================================================== Main =======================================================
 void app_main(void)
 {
 		// ====================================== Timers de proposito general ====================================
+		// ====================================== Timers de activacion de cambio de nota
 		// Configuracion general del timer
 		gptimer_config_t TimerConfiguracionGeneral = 
 		{
@@ -70,9 +113,9 @@ void app_main(void)
 		// Configuracion de la alarma
 		gptimer_alarm_config_t AlarmaNota = 
 		{
-			.alarm_count = 1000,
+			.alarm_count = 1000000,
 			.reload_count = 0,
-			.flags.auto_reload_on_alarm = true
+			.flags.auto_reload_on_alarm = false
 		};
 		// Aplicamos la configuracion de la alarma para el manejador
 		gptimer_set_alarm_action(TimerNota, &AlarmaNota);
@@ -86,6 +129,8 @@ void app_main(void)
 		// Habilitaos y empezamos el timer del display
 		gptimer_enable(TimerNota);
 		gptimer_start(TimerNota);
+						
+
 		// ====================================== Timers para PWM (configutacion) ============================
 		// Configuracion del ledc timer
 	    ledc_timer_config_t PWM_timer = 
@@ -114,22 +159,18 @@ void app_main(void)
 	    ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
     	vTaskDelay(500 / portTICK_PERIOD_MS);
 		
-	   
+	   int NotaActual=10; //numero aleaorio pero que no este enetre 0-6 (numero de notas)
 	    while (true) 
 	    {
-	    	CambiaLaNota();
-	    	if(nota==7)
+			if(NotaSonando==1)
 			{
-				if(octava==7){
-					printf(" ==== Empieza la Octava: %d =====\n", octava - 6);
-				}
-				else{
-					printf(" ==== Empieza la Octava: %d =====\n", octava + 2);
+				if(NotaActual!=nota)
+				{				
+					printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava + 1, (unsigned long)frecuencia);
+					NotaActual=nota;
 				}
 			}
-			//Apagar el timer que produce la frecuencia
-			ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-			// Silecnio
-			vTaskDelay(100 / portTICK_PERIOD_MS);
+			// Hacer algo
+    		vTaskDelay(1 / portTICK_PERIOD_MS); 
 	    }
 	}
