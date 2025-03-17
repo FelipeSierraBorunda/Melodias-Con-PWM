@@ -1,7 +1,13 @@
 #include "driver/ledc.h"
+#include "driver/gpio.h"
+#include "driver/gptimer.h"
 #include "esp_event.h"
 #include "soc/ledc_reg.h"
-
+#include "stdio.h"
+// Varaibles globales 
+int nota=0;
+int octava=0;
+uint32_t frecuencia;
 // Matriz de segmentos para los dígitos 0-9
 uint32_t NotasyOctavas[][8] = 
 {
@@ -15,17 +21,84 @@ uint32_t NotasyOctavas[][8] =
     {46, 92, 184, 368, 736, 1472, 2944, 5888}, // Si
 };
 // Nombres de las notas para imprimir
-const char* NombresNotas[] = {"Do", "Re", "Mi", "Fa", "Sol", "La", "Si"};
-void app_main(void){
-	    ledc_timer_config_t PWM_timer = {
+const char* NombresNotas[] = 
+{"Do", "Re", "Mi", "Fa", "Sol", "La", "Si"};
+//================================================== Funciones  =====================================================
+void CambiaLaNota()
+{
+	if (nota<7)
+	{
+	frecuencia = NotasyOctavas[nota][octava];
+	printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava + 1, (unsigned long)frecuencia);
+	ledc_set_freq(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0, frecuencia);
+	ledc_timer_rst(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+	ledc_timer_resume(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+	vTaskDelay(500 / portTICK_PERIOD_MS);
+	nota++;
+	}
+	else if (nota==7)
+	{
+		nota=0;
+		if(octava<8){octava=octava+1;}
+		if(octava==8){octava=0;}
+	}   	
+}
+//================================================== Interrupciones =================================================
+// ================================================= Cambio de nota
+// ISR para detectar dirección de giro
+static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+{
+	BaseType_t high_task_awoken = pdFALSE;
+
+	return (high_task_awoken == pdTRUE); 		
+}
+//==================================================== Main =======================================================
+void app_main(void)
+{
+		// ====================================== Timers de proposito general ====================================
+		// Configuracion general del timer
+		gptimer_config_t TimerConfiguracionGeneral = 
+		{
+			.clk_src = GPTIMER_CLK_SRC_APB,			 
+			.direction = GPTIMER_COUNT_UP, 			
+			.resolution_hz = 1000000,				 
+		};
+		// Declaramos el manejador del gptimer 
+		gptimer_handle_t TimerNota = NULL;		  	
+		//Aplicamos Configuracion General
+		gptimer_new_timer(&TimerConfiguracionGeneral, &TimerNota);  
+		// Configuracion de la alarma
+		gptimer_alarm_config_t AlarmaNota = 
+		{
+			.alarm_count = 1000,
+			.reload_count = 0,
+			.flags.auto_reload_on_alarm = true
+		};
+		// Aplicamos la configuracion de la alarma para el manejador
+		gptimer_set_alarm_action(TimerNota, &AlarmaNota);
+		// Establecemos que la alarma del manejador, active la siguiente interrupcion
+		gptimer_event_callbacks_t CambioDeNota = 
+		{
+			.on_alarm = CambioNota,
+		};
+		// Aplicamos el evento al manejador
+		gptimer_register_event_callbacks(TimerNota, &CambioDeNota, NULL);
+		// Habilitaos y empezamos el timer del display
+		gptimer_enable(TimerNota);
+		gptimer_start(TimerNota);
+		// ====================================== Timers para PWM (configutacion) ============================
+		// Configuracion del ledc timer
+	    ledc_timer_config_t PWM_timer = 
+	    {
 	        .duty_resolution = LEDC_TIMER_6_BIT, 		// resolution of PWM duty (1024)
 	        .freq_hz = 32,                      		// frequency of PWM signal
 	        .speed_mode = LEDC_HIGH_SPEED_MODE,      	// timer mode
 	        .timer_num = LEDC_TIMER_0,            		// timer index
 	        .clk_cfg = LEDC_AUTO_CLK,             		// Auto select the source clock
 	    };
-
-	    ledc_channel_config_t PWM_channel = {
+	    // Configuracion del canal del timer (cada ledc timer tiene dos canales)
+	    ledc_channel_config_t PWM_channel = 
+	    {
 	                .channel    = LEDC_CHANNEL_0,
 	                .duty       = 32,
 	                .gpio_num   = 25,
@@ -33,36 +106,30 @@ void app_main(void){
 	                .hpoint     = 0,
 	                .timer_sel  = LEDC_TIMER_0
 	            };
+	    // ======================================== Configuraciones de inicio ==================================
+	    // Se aplican las configuraciones
 	    ledc_timer_config(&PWM_timer);
 	    ledc_channel_config(&PWM_channel);
+	    // Al iniciarse, se pausa el timer
 	    ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
     	vTaskDelay(500 / portTICK_PERIOD_MS);
-
-	    int nota;
-	    int octava=0;
+		
+	   
 	    while (true) 
 	    {
-	    	for ( nota = 0; nota < 7; nota++) 
-	    	{ 
-				uint32_t frecuencia = NotasyOctavas[nota][octava];
-				// Imprimir en consola la nota, octava y frecuencia
-           		 printf("Nota: %s, Octava: %d, Frecuencia: %lu Hz\n", NombresNotas[nota], octava + 1, (unsigned long)frecuencia);
-	             ledc_set_freq(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0, frecuencia);
-	             ledc_timer_rst(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-	             ledc_timer_resume(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-	
-	             vTaskDelay(500 / portTICK_PERIOD_MS);
-				if(nota==6)
-				{
-					printf(" ==== Empieza la Octava: %d =====\n", octava + 2);
-					if(octava<8){octava=octava+1;}
-					if(octava==8){octava=0;}
+	    	CambiaLaNota();
+	    	if(nota==7)
+			{
+				if(octava==7){
+					printf(" ==== Empieza la Octava: %d =====\n", octava - 6);
 				}
-				 ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-	    		vTaskDelay(100 / portTICK_PERIOD_MS);
-        	}
-        	
-		    ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
-	    	vTaskDelay(1000 / portTICK_PERIOD_MS);
+				else{
+					printf(" ==== Empieza la Octava: %d =====\n", octava + 2);
+				}
+			}
+			//Apagar el timer que produce la frecuencia
+			ledc_timer_pause(LEDC_HIGH_SPEED_MODE, LEDC_TIMER_0);
+			// Silecnio
+			vTaskDelay(100 / portTICK_PERIOD_MS);
 	    }
 	}
