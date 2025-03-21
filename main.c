@@ -165,7 +165,7 @@ static bool IRAM_ATTR CambioNota(gptimer_handle_t timer, const gptimer_alarm_eve
 	{
 		CambiaLaNota();
 		// Configuramos el ciclo de trabajo a un valor adecuado para la frecuencia deseada
-        ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 32); // 50% de ciclo de trabajo
+        ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0, 2046); // 50% de ciclo de trabajo
         ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_0);  // Actualizamos el ciclo de trabajo
 		// Indicamos que esta sonando
 		NotaSonando=1;
